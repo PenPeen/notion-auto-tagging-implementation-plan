@@ -11,6 +11,11 @@ from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 
+
+class RateLimitError(Exception):
+    """LLM APIのレートリミットエラー（429）"""
+    pass
+
 # タグカテゴリ定義
 TAG_CATEGORIES = {
     "Language": {
@@ -150,11 +155,16 @@ class GeminiTagger(BaseTagger):
         self.model = genai.GenerativeModel("gemini-1.5-flash")
 
     def infer_tags(self, content: dict, max_tags: int = 5) -> list:
-        prompt = self._build_prompt(content, max_tags)
-        response = self.model.generate_content(prompt)
-        result = self._extract_json(response.text)
-        tags = result.get("tags", [])
-        return self._normalize_tags(tags)
+        try:
+            prompt = self._build_prompt(content, max_tags)
+            response = self.model.generate_content(prompt)
+            result = self._extract_json(response.text)
+            tags = result.get("tags", [])
+            return self._normalize_tags(tags)
+        except Exception as e:
+            if "429" in str(e) or "ResourceExhausted" in type(e).__name__:
+                raise RateLimitError(f"Gemini rate limit: {e}") from e
+            raise
 
 
 class ClaudeTagger(BaseTagger):
@@ -167,18 +177,23 @@ class ClaudeTagger(BaseTagger):
         self.client = anthropic.Anthropic(api_key=api_key)
 
     def infer_tags(self, content: dict, max_tags: int = 5) -> list:
-        prompt = self._build_prompt(content, max_tags)
+        try:
+            prompt = self._build_prompt(content, max_tags)
 
-        response = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=256,
-            messages=[{"role": "user", "content": prompt}],
-        )
+            response = self.client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=256,
+                messages=[{"role": "user", "content": prompt}],
+            )
 
-        text = response.content[0].text
-        result = self._extract_json(text)
-        tags = result.get("tags", [])
-        return self._normalize_tags(tags)
+            text = response.content[0].text
+            result = self._extract_json(text)
+            tags = result.get("tags", [])
+            return self._normalize_tags(tags)
+        except Exception as e:
+            if "RateLimitError" in type(e).__name__ or "429" in str(e):
+                raise RateLimitError(f"Claude rate limit: {e}") from e
+            raise
 
 
 def create_tagger(provider: str, config, available_tags: list = None) -> BaseTagger:

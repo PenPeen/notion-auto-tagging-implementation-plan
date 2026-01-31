@@ -7,8 +7,14 @@ import time
 
 from config import Config
 from notion_service import NotionDB
-from tagger import create_tagger
+from tagger import create_tagger, RateLimitError
 from utils import extract_content
+
+# LLMプロバイダごとのリクエスト間隔（秒）
+LLM_SLEEP_INTERVALS = {
+    "gemini": 4.0,   # 15 RPM → 4秒間隔
+    "claude": 1.0,   # RPM余裕あり
+}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,10 +23,30 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def process_records(records: list, notion: NotionDB, tagger, config: Config):
+def _infer_with_retry(tagger, content: dict, page_id: str) -> list:
+    """タグ推論を1回リトライ付きで実行。429はそのまま送出。"""
+    try:
+        return tagger.infer_tags(content)
+    except RateLimitError:
+        raise
+    except Exception as first_err:
+        logger.warning(f"Retry for {page_id} due to: {first_err}")
+        try:
+            return tagger.infer_tags(content)
+        except RateLimitError:
+            raise
+        except Exception as retry_err:
+            raise retry_err from first_err
+
+
+def process_records(
+    records: list, notion: NotionDB, tagger, config: Config
+) -> tuple:
     """レコードを処理してタグ付け"""
     success = 0
     failed = 0
+    skipped = 0
+    sleep_interval = LLM_SLEEP_INTERVALS.get(config.llm_provider, 4.0)
 
     for i, page in enumerate(records):
         page_id = page["id"]
@@ -28,21 +54,26 @@ def process_records(records: list, notion: NotionDB, tagger, config: Config):
 
         if not any(content.values()):
             logger.warning(f"Skip empty content: {page_id}")
+            skipped += 1
             continue
 
         try:
-            tags = tagger.infer_tags(content)
+            tags = _infer_with_retry(tagger, content, page_id)
             notion.update_tags(page_id, config.tag_property_name, tags)
             logger.info(f"[{i+1}/{len(records)}] Tagged: {page_id} -> {tags}")
             success += 1
+        except RateLimitError as e:
+            logger.error(f"Rate limit hit at record {i+1}/{len(records)}: {e}")
+            logger.error("Aborting to avoid further rate limit errors.")
+            failed += len(records) - i
+            break
         except Exception as e:
             logger.error(f"Failed to tag {page_id}: {e}")
             failed += 1
 
-        # APIレートリミット対策
-        time.sleep(0.5)
+        time.sleep(sleep_interval)
 
-    return success, failed
+    return success, failed, skipped
 
 
 def main():
@@ -106,8 +137,8 @@ def main():
         logger.info("No records to process. Done.")
         return
 
-    success, failed = process_records(records, notion, tagger, config)
-    logger.info(f"Done. Success: {success}, Failed: {failed}")
+    success, failed, skipped = process_records(records, notion, tagger, config)
+    logger.info(f"Done. Success: {success}, Failed: {failed}, Skipped: {skipped}")
 
 
 if __name__ == "__main__":
