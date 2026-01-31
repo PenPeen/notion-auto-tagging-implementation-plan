@@ -7,13 +7,13 @@ import time
 
 from config import Config
 from notion_service import NotionDB
-from tagger import create_tagger, RateLimitError
-from utils import extract_content, extract_body_content
+from tagger import RateLimitError, create_tagger
+from utils import extract_body_content, extract_content
 
 # LLMプロバイダごとのリクエスト間隔（秒）
 LLM_SLEEP_INTERVALS = {
-    "gemini": 4.0,   # 15 RPM → 4秒間隔
-    "claude": 1.0,   # RPM余裕あり
+    "gemini": 0.5,
+    "claude": 0.5,
 }
 
 logging.basicConfig(
@@ -39,9 +39,7 @@ def _infer_with_retry(tagger, content: dict, page_id: str) -> list:
             raise retry_err from first_err
 
 
-def process_records(
-    records: list, notion: NotionDB, tagger, config: Config
-) -> tuple:
+def process_records(records: list, notion: NotionDB, tagger, config: Config) -> tuple:
     """レコードを処理してタグ付け"""
     success = 0
     failed = 0
@@ -88,9 +86,7 @@ def process_records(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Notion Knowledge DB 自動タグ付けシステム"
-    )
+    parser = argparse.ArgumentParser(description="Notion Knowledge DB 自動タグ付けシステム")
     parser.add_argument(
         "--mode",
         choices=["initial", "incremental"],
@@ -137,9 +133,7 @@ def main():
         logger.info("Initial mode: Processing all records")
         records = notion.get_all_records()
     else:
-        logger.info(
-            f"Incremental mode: Processing records updated in last {args.hours}h"
-        )
+        logger.info(f"Incremental mode: Processing records updated in last {args.hours}h")
         records = notion.get_recently_updated(args.hours)
 
     logger.info(f"Found {len(records)} records to process")
