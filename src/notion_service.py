@@ -2,6 +2,9 @@
 
 notion-clientパッケージとの名前衝突を避けるため、
 notion_client.pyではなくnotion_service.pyとしている。
+
+notion-client v2.6.0以降、Notion API 2025-09-03対応で
+databases.query() → data_sources.query() に移行。
 """
 
 from notion_client import Client
@@ -12,15 +15,24 @@ class NotionDB:
     def __init__(self, api_key: str, database_id: str):
         self.client = Client(auth=api_key)
         self.database_id = database_id
+        self._data_source_id = None
+
+    def _get_data_source_id(self) -> str:
+        """データベースからdata_source_idを取得（遅延初期化）"""
+        if self._data_source_id is None:
+            db_info = self.client.databases.retrieve(database_id=self.database_id)
+            self._data_source_id = db_info["data_sources"][0]["id"]
+        return self._data_source_id
 
     def get_all_records(self) -> list:
         """全レコード取得（初回実行用）"""
+        data_source_id = self._get_data_source_id()
         results = []
         cursor = None
 
         while True:
-            response = self.client.databases.query(
-                database_id=self.database_id,
+            response = self.client.data_sources.query(
+                data_source_id=data_source_id,
                 start_cursor=cursor,
             )
             results.extend(response["results"])
@@ -33,14 +45,15 @@ class NotionDB:
 
     def get_recently_updated(self, hours: int = 24) -> list:
         """指定時間内に更新されたレコード取得"""
+        data_source_id = self._get_data_source_id()
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
         results = []
         cursor = None
 
         while True:
-            response = self.client.databases.query(
-                database_id=self.database_id,
+            response = self.client.data_sources.query(
+                data_source_id=data_source_id,
                 filter={
                     "timestamp": "last_edited_time",
                     "last_edited_time": {
