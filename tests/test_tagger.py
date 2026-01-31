@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from tagger import BaseTagger, GeminiTagger, ClaudeTagger, create_tagger, TAG_CATEGORIES, _to_pascal_case
+from utils import extract_block_text, extract_body_content
 
 
 class ConcreteTagger(BaseTagger):
@@ -237,6 +238,178 @@ class TestExtractContent(unittest.TestCase):
         }
         result = extract_content(page, ["Category"])
         self.assertEqual(result["Category"], "技術")
+
+
+class TestExtractBlockText(unittest.TestCase):
+    """extract_block_text のテスト"""
+
+    def test_paragraph(self):
+        block = {
+            "type": "paragraph",
+            "paragraph": {"rich_text": [{"plain_text": "Hello World"}]},
+        }
+        self.assertEqual(extract_block_text(block), "Hello World")
+
+    def test_heading_1(self):
+        block = {
+            "type": "heading_1",
+            "heading_1": {"rich_text": [{"plain_text": "Title"}]},
+        }
+        self.assertEqual(extract_block_text(block), "Title")
+
+    def test_heading_2(self):
+        block = {
+            "type": "heading_2",
+            "heading_2": {"rich_text": [{"plain_text": "Subtitle"}]},
+        }
+        self.assertEqual(extract_block_text(block), "Subtitle")
+
+    def test_heading_3(self):
+        block = {
+            "type": "heading_3",
+            "heading_3": {"rich_text": [{"plain_text": "Section"}]},
+        }
+        self.assertEqual(extract_block_text(block), "Section")
+
+    def test_bulleted_list_item(self):
+        block = {
+            "type": "bulleted_list_item",
+            "bulleted_list_item": {"rich_text": [{"plain_text": "item 1"}]},
+        }
+        self.assertEqual(extract_block_text(block), "item 1")
+
+    def test_numbered_list_item(self):
+        block = {
+            "type": "numbered_list_item",
+            "numbered_list_item": {"rich_text": [{"plain_text": "step 1"}]},
+        }
+        self.assertEqual(extract_block_text(block), "step 1")
+
+    def test_quote(self):
+        block = {
+            "type": "quote",
+            "quote": {"rich_text": [{"plain_text": "a wise quote"}]},
+        }
+        self.assertEqual(extract_block_text(block), "a wise quote")
+
+    def test_callout(self):
+        block = {
+            "type": "callout",
+            "callout": {"rich_text": [{"plain_text": "Note: important"}]},
+        }
+        self.assertEqual(extract_block_text(block), "Note: important")
+
+    def test_toggle(self):
+        block = {
+            "type": "toggle",
+            "toggle": {"rich_text": [{"plain_text": "Details"}]},
+        }
+        self.assertEqual(extract_block_text(block), "Details")
+
+    def test_to_do(self):
+        block = {
+            "type": "to_do",
+            "to_do": {"rich_text": [{"plain_text": "Buy milk"}]},
+        }
+        self.assertEqual(extract_block_text(block), "Buy milk")
+
+    def test_code_with_language(self):
+        block = {
+            "type": "code",
+            "code": {
+                "rich_text": [{"plain_text": "print('hello')"}],
+                "language": "python",
+            },
+        }
+        self.assertEqual(extract_block_text(block), "[python] print('hello')")
+
+    def test_code_without_language(self):
+        block = {
+            "type": "code",
+            "code": {
+                "rich_text": [{"plain_text": "echo hi"}],
+                "language": "",
+            },
+        }
+        self.assertEqual(extract_block_text(block), "echo hi")
+
+    def test_unsupported_block_type(self):
+        block = {"type": "image", "image": {}}
+        self.assertEqual(extract_block_text(block), "")
+
+    def test_divider(self):
+        block = {"type": "divider", "divider": {}}
+        self.assertEqual(extract_block_text(block), "")
+
+    def test_multiple_rich_text_segments(self):
+        block = {
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [
+                    {"plain_text": "Hello "},
+                    {"plain_text": "World"},
+                ]
+            },
+        }
+        self.assertEqual(extract_block_text(block), "Hello World")
+
+    def test_empty_rich_text(self):
+        block = {
+            "type": "paragraph",
+            "paragraph": {"rich_text": []},
+        }
+        self.assertEqual(extract_block_text(block), "")
+
+
+class TestExtractBodyContent(unittest.TestCase):
+    """extract_body_content のテスト"""
+
+    def test_basic_extraction(self):
+        blocks = [
+            {"type": "heading_1", "heading_1": {"rich_text": [{"plain_text": "Title"}]}},
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Body text"}]}},
+        ]
+        result = extract_body_content(blocks)
+        self.assertEqual(result, "Title\nBody text")
+
+    def test_skip_unsupported_blocks(self):
+        blocks = [
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Before"}]}},
+            {"type": "image", "image": {}},
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "After"}]}},
+        ]
+        result = extract_body_content(blocks)
+        self.assertEqual(result, "Before\nAfter")
+
+    def test_truncation(self):
+        blocks = [
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "A" * 50}]}},
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "B" * 50}]}},
+        ]
+        result = extract_body_content(blocks, max_chars=60)
+        # 最初の50文字ブロック + 改行分(1) = 51, 残り9文字分で切り詰め
+        self.assertLessEqual(len(result), 60)
+        self.assertTrue(result.startswith("A" * 50))
+
+    def test_empty_blocks(self):
+        blocks = [
+            {"type": "paragraph", "paragraph": {"rich_text": []}},
+            {"type": "divider", "divider": {}},
+        ]
+        result = extract_body_content(blocks)
+        self.assertEqual(result, "")
+
+    def test_empty_list(self):
+        result = extract_body_content([])
+        self.assertEqual(result, "")
+
+    def test_single_block_exceeds_max(self):
+        blocks = [
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "X" * 100}]}},
+        ]
+        result = extract_body_content(blocks, max_chars=30)
+        self.assertEqual(len(result), 30)
+        self.assertEqual(result, "X" * 30)
 
 
 if __name__ == "__main__":

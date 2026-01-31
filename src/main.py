@@ -8,7 +8,7 @@ import time
 from config import Config
 from notion_service import NotionDB
 from tagger import create_tagger, RateLimitError
-from utils import extract_content
+from utils import extract_content, extract_body_content
 
 # LLMプロバイダごとのリクエスト間隔（秒）
 LLM_SLEEP_INTERVALS = {
@@ -51,6 +51,17 @@ def process_records(
     for i, page in enumerate(records):
         page_id = page["id"]
         content = extract_content(page, config.content_properties)
+
+        # ページ本文（ブロック）を取得してcontentにマージ
+        if config.fetch_page_body:
+            try:
+                blocks = notion.get_page_blocks(page_id)
+                body = extract_body_content(blocks, config.body_max_chars)
+                if body:
+                    content["body"] = body
+                time.sleep(0.35)  # Notion API レート制限対策 (3 req/s)
+            except Exception as e:
+                logger.warning(f"Failed to fetch blocks for {page_id}: {e}")
 
         if not any(content.values()):
             logger.warning(f"Skip empty content: {page_id}")
