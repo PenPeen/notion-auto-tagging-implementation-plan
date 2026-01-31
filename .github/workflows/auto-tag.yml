@@ -42,6 +42,10 @@ jobs:
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          TAG_PROPERTY_NAME: ${{ vars.TAG_PROPERTY_NAME }}
+          CONTENT_PROPERTIES: ${{ vars.CONTENT_PROPERTIES }}
+          FETCH_PAGE_BODY: ${{ vars.FETCH_PAGE_BODY }}
+          BODY_MAX_CHARS: ${{ vars.BODY_MAX_CHARS }}
         run: |
           MODE="${{ github.event.inputs.mode || 'incremental' }}"
           LLM="${{ github.event.inputs.llm || 'gemini' }}"

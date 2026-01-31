@@ -12,8 +12,10 @@ class Config:
     gemini_api_key: str = ""
     claude_api_key: str = ""
     llm_provider: str = "gemini"
-    tag_property_name: str = "Tags"
+    tag_property_name: str = "ラベル"
     content_properties: list = field(default_factory=list)
+    fetch_page_body: bool = True
+    body_max_chars: int = 4000
 
     def __post_init__(self):
         self.notion_api_key = os.getenv("NOTION_API_KEY", self.notion_api_key)
@@ -24,5 +26,11 @@ class Config:
         self.tag_property_name = os.getenv("TAG_PROPERTY_NAME", self.tag_property_name)
         if not self.content_properties:
             self.content_properties = os.getenv(
-                "CONTENT_PROPERTIES", "Name,Content"
+                "CONTENT_PROPERTIES", "タイトル"
             ).split(",")
+        fetch_env = os.getenv("FETCH_PAGE_BODY", "").lower()
+        if fetch_env in ("false", "0", "no"):
+            self.fetch_page_body = False
+        self.body_max_chars = int(
+            os.getenv("BODY_MAX_CHARS", str(self.body_max_chars))
+        )
