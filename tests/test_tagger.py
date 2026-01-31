@@ -417,87 +417,52 @@ class TestShouldSkip(unittest.TestCase):
 
     def setUp(self):
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-        from main import _should_skip, TAGGED_AT_BUFFER_SECONDS
+        from main import _should_skip
 
         self._should_skip = _should_skip
-        self.buffer = TAGGED_AT_BUFFER_SECONDS
+
+    def _make_page(self, hours_ago):
+        """hours_ago 時間前にタグ付けされたページを生成"""
+        from datetime import datetime, timedelta, timezone
+
+        tagged_at = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
+        return {
+            "properties": {
+                "最終タグ付け日時": {
+                    "date": {"start": tagged_at.isoformat()},
+                },
+            },
+        }
 
     def test_skip_when_tagged_recently(self):
-        """タグ更新直後（差が数秒）→ スキップすべき"""
-        page = {
-            "last_edited_time": "2026-01-31T09:00:05.000Z",
-            "properties": {
-                "最終タグ付け日時": {
-                    "date": {"start": "2026-01-31T09:00:00+00:00"},
-                },
-            },
-        }
-        self.assertTrue(self._should_skip(page, "最終タグ付け日時"))
+        """1時間前にタグ付け済み（24時間以内）→ スキップ"""
+        page = self._make_page(hours_ago=1)
+        self.assertTrue(self._should_skip(page, "最終タグ付け日時", 24))
 
-    def test_no_skip_when_user_edited(self):
-        """ユーザー編集後（差が大きい）→ スキップしない"""
-        page = {
-            "last_edited_time": "2026-01-31T15:00:00.000Z",
-            "properties": {
-                "最終タグ付け日時": {
-                    "date": {"start": "2026-01-31T09:00:00+00:00"},
-                },
-            },
-        }
-        self.assertFalse(self._should_skip(page, "最終タグ付け日時"))
+    def test_no_skip_when_tagged_long_ago(self):
+        """25時間前にタグ付け済み（24時間超）→ スキップしない"""
+        page = self._make_page(hours_ago=25)
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時", 24))
 
     def test_no_skip_when_tagged_at_missing(self):
         """最終タグ付け日時が未設定 → スキップしない"""
-        page = {
-            "last_edited_time": "2026-01-31T09:00:00.000Z",
-            "properties": {
-                "最終タグ付け日時": {"date": None},
-            },
-        }
-        self.assertFalse(self._should_skip(page, "最終タグ付け日時"))
+        page = {"properties": {"最終タグ付け日時": {"date": None}}}
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時", 24))
 
     def test_no_skip_when_property_absent(self):
         """最終タグ付け日時プロパティ自体がない → スキップしない"""
-        page = {
-            "last_edited_time": "2026-01-31T09:00:00.000Z",
-            "properties": {},
-        }
-        self.assertFalse(self._should_skip(page, "最終タグ付け日時"))
+        page = {"properties": {}}
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時", 24))
 
     def test_no_skip_at_boundary(self):
-        """差がちょうど閾値以上 → スキップしない"""
-        page = {
-            "last_edited_time": "2026-01-31T09:05:00.000Z",
-            "properties": {
-                "最終タグ付け日時": {
-                    "date": {"start": "2026-01-31T09:00:00+00:00"},
-                },
-            },
-        }
-        self.assertFalse(self._should_skip(page, "最終タグ付け日時"))
+        """ちょうど24時間前 → スキップしない"""
+        page = self._make_page(hours_ago=24)
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時", 24))
 
-    def test_skip_at_just_under_boundary(self):
-        """差が閾値未満 → スキップ"""
-        page = {
-            "last_edited_time": "2026-01-31T09:04:59.000Z",
-            "properties": {
-                "最終タグ付け日時": {
-                    "date": {"start": "2026-01-31T09:00:00+00:00"},
-                },
-            },
-        }
-        self.assertTrue(self._should_skip(page, "最終タグ付け日時"))
-
-    def test_no_skip_when_last_edited_time_missing(self):
-        """last_edited_time がない → スキップしない"""
-        page = {
-            "properties": {
-                "最終タグ付け日時": {
-                    "date": {"start": "2026-01-31T09:00:00+00:00"},
-                },
-            },
-        }
-        self.assertFalse(self._should_skip(page, "最終タグ付け日時"))
+    def test_skip_just_under_boundary(self):
+        """23時間前（24時間以内）→ スキップ"""
+        page = self._make_page(hours_ago=23)
+        self.assertTrue(self._should_skip(page, "最終タグ付け日時", 24))
 
 
 if __name__ == "__main__":

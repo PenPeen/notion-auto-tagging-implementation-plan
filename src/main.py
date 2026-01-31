@@ -11,9 +11,6 @@ from notion_service import NotionDB
 from tagger import RateLimitError, create_tagger
 from utils import extract_body_content, extract_content
 
-# タグ更新による last_edited_time 変更とユーザー編集を区別する閾値（秒）
-TAGGED_AT_BUFFER_SECONDS = 300  # 5分
-
 # LLMプロバイダごとのリクエスト間隔（秒）
 LLM_SLEEP_INTERVALS = {
     "gemini": 0.5,
@@ -43,36 +40,26 @@ def _infer_with_retry(tagger, content: dict, page_id: str) -> list:
             raise retry_err from first_err
 
 
-def _should_skip(page: dict, tagged_at_property: str) -> bool:
-    """タグ更新済みかつユーザー編集がないレコードをスキップ判定する。
-
-    最終タグ付け日時が存在し、last_edited_time との差が閾値以内なら
-    タグ更新のみの変更と判断しスキップする。
-    """
+def _should_skip(page: dict, tagged_at_property: str, hours: int) -> bool:
+    """最終タグ付け日時がN時間以内ならスキップする。"""
     props = page.get("properties", {})
     tagged_at_value = props.get(tagged_at_property, {}).get("date")
     if not tagged_at_value or not tagged_at_value.get("start"):
         return False
 
-    last_edited = page.get("last_edited_time", "")
-    if not last_edited:
-        return False
-
     try:
         tagged_at = datetime.fromisoformat(tagged_at_value["start"])
-        edited_at = datetime.fromisoformat(last_edited)
-        # タイムゾーン情報がない場合はUTCとして扱う
         if tagged_at.tzinfo is None:
             tagged_at = tagged_at.replace(tzinfo=timezone.utc)
-        if edited_at.tzinfo is None:
-            edited_at = edited_at.replace(tzinfo=timezone.utc)
-        diff = abs((edited_at - tagged_at).total_seconds())
-        return diff < TAGGED_AT_BUFFER_SECONDS
+        diff_hours = (datetime.now(timezone.utc) - tagged_at).total_seconds() / 3600
+        return diff_hours < hours
     except (ValueError, TypeError):
         return False
 
 
-def process_records(records: list, notion: NotionDB, tagger, config: Config) -> tuple:
+def process_records(
+    records: list, notion: NotionDB, tagger, config: Config, hours: int = 24
+) -> tuple:
     """レコードを処理してタグ付け"""
     success = 0
     failed = 0
@@ -82,8 +69,8 @@ def process_records(records: list, notion: NotionDB, tagger, config: Config) -> 
     for i, page in enumerate(records):
         page_id = page["id"]
 
-        # 重複実行防止: タグ更新済みでユーザー編集がないレコードをスキップ
-        if _should_skip(page, config.tagged_at_property_name):
+        # 重複実行防止: 最終タグ付け日時がN時間以内ならスキップ
+        if _should_skip(page, config.tagged_at_property_name, hours):
             logger.info(f"[{i+1}/{len(records)}] Skipped (already tagged): {page_id}")
             skipped += 1
             continue
@@ -187,7 +174,7 @@ def main():
         logger.info("No records to process. Done.")
         return
 
-    success, failed, skipped = process_records(records, notion, tagger, config)
+    success, failed, skipped = process_records(records, notion, tagger, config, args.hours)
     logger.info(f"Done. Success: {success}, Failed: {failed}, Skipped: {skipped}")
 
 
