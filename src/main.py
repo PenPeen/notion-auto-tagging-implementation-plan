@@ -12,7 +12,7 @@ from utils import extract_content, extract_body_content
 
 # LLMプロバイダごとのリクエスト間隔（秒）
 LLM_SLEEP_INTERVALS = {
-    "gemini": 4.0,   # 15 RPM → 4秒間隔
+    "gemini": 0.5,   # 有料プラン（高RPM）
     "claude": 1.0,   # RPM余裕あり
 }
 

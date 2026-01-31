@@ -23,11 +23,12 @@ class Config:
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", self.gemini_api_key)
         self.claude_api_key = os.getenv("CLAUDE_API_KEY", self.claude_api_key)
         self.llm_provider = os.getenv("LLM_PROVIDER", self.llm_provider)
-        self.tag_property_name = os.getenv("TAG_PROPERTY_NAME", self.tag_property_name)
+        tag_env = os.getenv("TAG_PROPERTY_NAME", "")
+        if tag_env:
+            self.tag_property_name = tag_env
         if not self.content_properties:
-            self.content_properties = os.getenv(
-                "CONTENT_PROPERTIES", "タイトル"
-            ).split(",")
+            content_env = os.getenv("CONTENT_PROPERTIES", "")
+            self.content_properties = content_env.split(",") if content_env else ["タイトル"]
         fetch_env = os.getenv("FETCH_PAGE_BODY", "").lower()
         if fetch_env in ("false", "0", "no"):
             self.fetch_page_body = False
