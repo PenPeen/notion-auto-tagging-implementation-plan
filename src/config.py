@@ -13,6 +13,7 @@ class Config:
     content_properties: list = field(default_factory=list)
     fetch_page_body: bool = True
     body_max_chars: int = 4000
+    tagged_at_property_name: str = "最終タグ付け日時"
 
     def __post_init__(self):
         self.notion_api_key = os.getenv("NOTION_API_KEY", self.notion_api_key)
@@ -32,3 +33,6 @@ class Config:
         body_env = os.getenv("BODY_MAX_CHARS", "")
         if body_env:
             self.body_max_chars = int(body_env)
+        tagged_at_env = os.getenv("TAGGED_AT_PROPERTY_NAME", "")
+        if tagged_at_env:
+            self.tagged_at_property_name = tagged_at_env

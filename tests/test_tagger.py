@@ -412,5 +412,93 @@ class TestExtractBodyContent(unittest.TestCase):
         self.assertEqual(result, "X" * 30)
 
 
+class TestShouldSkip(unittest.TestCase):
+    """_should_skip のテスト"""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+        from main import _should_skip, TAGGED_AT_BUFFER_SECONDS
+
+        self._should_skip = _should_skip
+        self.buffer = TAGGED_AT_BUFFER_SECONDS
+
+    def test_skip_when_tagged_recently(self):
+        """タグ更新直後（差が数秒）→ スキップすべき"""
+        page = {
+            "last_edited_time": "2026-01-31T09:00:05.000Z",
+            "properties": {
+                "最終タグ付け日時": {
+                    "date": {"start": "2026-01-31T09:00:00+00:00"},
+                },
+            },
+        }
+        self.assertTrue(self._should_skip(page, "最終タグ付け日時"))
+
+    def test_no_skip_when_user_edited(self):
+        """ユーザー編集後（差が大きい）→ スキップしない"""
+        page = {
+            "last_edited_time": "2026-01-31T15:00:00.000Z",
+            "properties": {
+                "最終タグ付け日時": {
+                    "date": {"start": "2026-01-31T09:00:00+00:00"},
+                },
+            },
+        }
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時"))
+
+    def test_no_skip_when_tagged_at_missing(self):
+        """最終タグ付け日時が未設定 → スキップしない"""
+        page = {
+            "last_edited_time": "2026-01-31T09:00:00.000Z",
+            "properties": {
+                "最終タグ付け日時": {"date": None},
+            },
+        }
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時"))
+
+    def test_no_skip_when_property_absent(self):
+        """最終タグ付け日時プロパティ自体がない → スキップしない"""
+        page = {
+            "last_edited_time": "2026-01-31T09:00:00.000Z",
+            "properties": {},
+        }
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時"))
+
+    def test_no_skip_at_boundary(self):
+        """差がちょうど閾値以上 → スキップしない"""
+        page = {
+            "last_edited_time": "2026-01-31T09:05:00.000Z",
+            "properties": {
+                "最終タグ付け日時": {
+                    "date": {"start": "2026-01-31T09:00:00+00:00"},
+                },
+            },
+        }
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時"))
+
+    def test_skip_at_just_under_boundary(self):
+        """差が閾値未満 → スキップ"""
+        page = {
+            "last_edited_time": "2026-01-31T09:04:59.000Z",
+            "properties": {
+                "最終タグ付け日時": {
+                    "date": {"start": "2026-01-31T09:00:00+00:00"},
+                },
+            },
+        }
+        self.assertTrue(self._should_skip(page, "最終タグ付け日時"))
+
+    def test_no_skip_when_last_edited_time_missing(self):
+        """last_edited_time がない → スキップしない"""
+        page = {
+            "properties": {
+                "最終タグ付け日時": {
+                    "date": {"start": "2026-01-31T09:00:00+00:00"},
+                },
+            },
+        }
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時"))
+
+
 if __name__ == "__main__":
     unittest.main()
