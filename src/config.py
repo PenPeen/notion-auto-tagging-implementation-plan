@@ -28,6 +28,6 @@ class Config:
         fetch_env = os.getenv("FETCH_PAGE_BODY", "").lower()
         if fetch_env in ("false", "0", "no"):
             self.fetch_page_body = False
-        self.body_max_chars = int(
-            os.getenv("BODY_MAX_CHARS", str(self.body_max_chars))
-        )
+        body_env = os.getenv("BODY_MAX_CHARS", "")
+        if body_env:
+            self.body_max_chars = int(body_env)
