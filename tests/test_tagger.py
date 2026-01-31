@@ -412,5 +412,58 @@ class TestExtractBodyContent(unittest.TestCase):
         self.assertEqual(result, "X" * 30)
 
 
+class TestShouldSkip(unittest.TestCase):
+    """_should_skip のテスト"""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+        from main import _should_skip
+
+        self._should_skip = _should_skip
+
+    def _make_page(self, hours_ago):
+        """hours_ago 時間前にタグ付けされたページを生成"""
+        from datetime import datetime, timedelta, timezone
+
+        tagged_at = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
+        return {
+            "properties": {
+                "最終タグ付け日時": {
+                    "date": {"start": tagged_at.isoformat()},
+                },
+            },
+        }
+
+    def test_skip_when_tagged_recently(self):
+        """1時間前にタグ付け済み（24時間以内）→ スキップ"""
+        page = self._make_page(hours_ago=1)
+        self.assertTrue(self._should_skip(page, "最終タグ付け日時", 24))
+
+    def test_no_skip_when_tagged_long_ago(self):
+        """25時間前にタグ付け済み（24時間超）→ スキップしない"""
+        page = self._make_page(hours_ago=25)
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時", 24))
+
+    def test_no_skip_when_tagged_at_missing(self):
+        """最終タグ付け日時が未設定 → スキップしない"""
+        page = {"properties": {"最終タグ付け日時": {"date": None}}}
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時", 24))
+
+    def test_no_skip_when_property_absent(self):
+        """最終タグ付け日時プロパティ自体がない → スキップしない"""
+        page = {"properties": {}}
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時", 24))
+
+    def test_no_skip_at_boundary(self):
+        """ちょうど24時間前 → スキップしない"""
+        page = self._make_page(hours_ago=24)
+        self.assertFalse(self._should_skip(page, "最終タグ付け日時", 24))
+
+    def test_skip_just_under_boundary(self):
+        """23時間前（24時間以内）→ スキップ"""
+        page = self._make_page(hours_ago=23)
+        self.assertTrue(self._should_skip(page, "最終タグ付け日時", 24))
+
+
 if __name__ == "__main__":
     unittest.main()

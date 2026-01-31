@@ -95,13 +95,22 @@ class NotionDB:
 
         return results
 
-    def update_tags(self, page_id: str, tag_property: str, tags: list):
-        """タグを更新"""
-        self.client.pages.update(
-            page_id=page_id,
-            properties={
-                tag_property: {
-                    "multi_select": [{"name": tag} for tag in tags],
-                },
+    def update_tags(
+        self,
+        page_id: str,
+        tag_property: str,
+        tags: list,
+        tagged_at_property: str | None = None,
+    ):
+        """タグを更新（tagged_at_property指定時は最終タグ付け日時も同時更新）"""
+        properties = {
+            tag_property: {
+                "multi_select": [{"name": tag} for tag in tags],
             },
-        )
+        }
+        if tagged_at_property:
+            now = datetime.now(timezone.utc).isoformat()
+            properties[tagged_at_property] = {
+                "date": {"start": now},
+            }
+        self.client.pages.update(page_id=page_id, properties=properties)

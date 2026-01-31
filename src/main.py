@@ -4,6 +4,7 @@ import argparse
 import logging
 import sys
 import time
+from datetime import datetime, timezone
 
 from config import Config
 from notion_service import NotionDB
@@ -39,7 +40,26 @@ def _infer_with_retry(tagger, content: dict, page_id: str) -> list:
             raise retry_err from first_err
 
 
-def process_records(records: list, notion: NotionDB, tagger, config: Config) -> tuple:
+def _should_skip(page: dict, tagged_at_property: str, hours: int) -> bool:
+    """最終タグ付け日時がN時間以内ならスキップする。"""
+    props = page.get("properties", {})
+    tagged_at_value = props.get(tagged_at_property, {}).get("date")
+    if not tagged_at_value or not tagged_at_value.get("start"):
+        return False
+
+    try:
+        tagged_at = datetime.fromisoformat(tagged_at_value["start"])
+        if tagged_at.tzinfo is None:
+            tagged_at = tagged_at.replace(tzinfo=timezone.utc)
+        diff_hours = (datetime.now(timezone.utc) - tagged_at).total_seconds() / 3600
+        return diff_hours < hours
+    except (ValueError, TypeError):
+        return False
+
+
+def process_records(
+    records: list, notion: NotionDB, tagger, config: Config, hours: int = 24
+) -> tuple:
     """レコードを処理してタグ付け"""
     success = 0
     failed = 0
@@ -48,6 +68,13 @@ def process_records(records: list, notion: NotionDB, tagger, config: Config) -> 
 
     for i, page in enumerate(records):
         page_id = page["id"]
+
+        # 重複実行防止: 最終タグ付け日時がN時間以内ならスキップ
+        if _should_skip(page, config.tagged_at_property_name, hours):
+            logger.info(f"[{i+1}/{len(records)}] Skipped (already tagged): {page_id}")
+            skipped += 1
+            continue
+
         content = extract_content(page, config.content_properties)
 
         # ページ本文（ブロック）を取得してcontentにマージ
@@ -62,13 +89,18 @@ def process_records(records: list, notion: NotionDB, tagger, config: Config) -> 
                 logger.warning(f"Failed to fetch blocks for {page_id}: {e}")
 
         if not any(content.values()):
-            logger.warning(f"Skip empty content: {page_id}")
+            logger.warning(f"[{i+1}/{len(records)}] Skip empty content: {page_id}")
             skipped += 1
             continue
 
         try:
             tags = _infer_with_retry(tagger, content, page_id)
-            notion.update_tags(page_id, config.tag_property_name, tags)
+            notion.update_tags(
+                page_id,
+                config.tag_property_name,
+                tags,
+                tagged_at_property=config.tagged_at_property_name,
+            )
             logger.info(f"[{i+1}/{len(records)}] Tagged: {page_id} -> {tags}")
             success += 1
         except RateLimitError as e:
@@ -142,7 +174,7 @@ def main():
         logger.info("No records to process. Done.")
         return
 
-    success, failed, skipped = process_records(records, notion, tagger, config)
+    success, failed, skipped = process_records(records, notion, tagger, config, args.hours)
     logger.info(f"Done. Success: {success}, Failed: {failed}, Skipped: {skipped}")
 
 
