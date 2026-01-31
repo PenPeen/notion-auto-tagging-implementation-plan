@@ -149,15 +149,18 @@ class GeminiTagger(BaseTagger):
 
     def __init__(self, api_key: str, available_tags: list = None):
         super().__init__(available_tags)
-        import google.generativeai as genai
+        from google import genai
 
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel("gemini-1.5-flash")
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = "gemini-2.5-flash-lite"
 
     def infer_tags(self, content: dict, max_tags: int = 5) -> list:
         try:
             prompt = self._build_prompt(content, max_tags)
-            response = self.model.generate_content(prompt)
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+            )
             result = self._extract_json(response.text)
             tags = result.get("tags", [])
             return self._normalize_tags(tags)
